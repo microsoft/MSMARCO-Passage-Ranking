@@ -1,0 +1,432 @@
+//#DECLARE QT string = @"/projects/BusinessCritical/MSMARCO/MSCLEAR/trainquery.tsv"; 
+#DECLARE QT string = @"/projects/BusinessCritical/MSMARCO/MSCLEAR/devquery.tsv"; 
+//#DECLARE QT string = @"/projects/BusinessCritical/MSMARCO/MSCLEAR/evalquery.tsv"; 
+#DECLARE DT string = @"/projects/relevanceSciences/msmarco/data/unique.tsv";
+#DECLARE QRELS string = @"/projects/relevanceSciences/msmarco/data/relevant.tsv";
+
+#DECLARE outdir string = @"/projects/relevanceSciences/msmarco/new_data_results/not_normalized/hackathon_files/";
+#DECLARE SW string = @"/projects/relevanceSciences/msmarco/stopwords.tsv";
+
+//Intermediate files
+//#DECLARE TDScores_SS string = @outdir + "TDScores_SS_eval.ss";
+//#DECLARE QDRanks_SS string = @outdir + "QDRanks_SW_dev.ss";
+//#DECLARE QDScores_and_Ranks_top10 string = @outdir + "QDScores_and_Ranks_top10.ss";
+//#DECLARE QDScores_and_Ranks_top10_text string = @outdir + "QDScores_and_Ranks_top10_text.tsv";
+ 
+//BM25 output
+#DECLARE dev_bm25_qid_did_scores string = @outdir + "dev_bm25_qid_did_scores.tsv";
+//#DECLARE trec_eval_dev string = @outdir + "trec_eval_dev_bm25.tsv";
+//#DECLARE trec_eval_eval string = @outdir + "trec_eval_eval_bm25.tsv";
+//#DECLARE QDListsForTraining string = @outdir + "QDListsForTraining.tsv";
+//#DECLARE triples_train_full string = @outdir + "triples_train_full.tsv";
+//#DECLARE triples_train_small string = @outdir + "triples_train_small.tsv";
+
+//Metrics
+//#DECLARE Recall string = @outdir + "metrics/Recall_1000.tsv";
+//#DECLARE Qrels_hist string = @outdir + "metrics/Qrels_hist.tsv";
+//#DECLARE QueryNDCG string = @outdir + "metrics/QueryNDCG.tsv";
+//#DECLARE ModelNDCG string = @outdir + "metrics/ModelNDCG.tsv";
+//#DECLARE MRR string = @outdir + "metrics/MRR.tsv";
+//Debugging files
+//#DECLARE TD string = @outdir + "TD_Freq_sw.tsv";
+//#DECLARE TQ string = @outdir + "TQ_Freq_sw.tsv";
+//#DECLARE TRows string = @outdir + "TRows_sw.tsv";
+//#DECLARE dummy string = @outdir + "dummy.tsv";
+
+//Code needed for all parts - Begin
+#DECLARE Discount int = 1;
+#DECLARE q0 string = "Q0";
+#DECLARE posRating int = 1;
+#DECLARE bm25 string = "bm25";
+qt_old =
+    EXTRACT qid : int,
+            ts : string
+    FROM @QT USING DefaultTextExtractor();
+qt =
+    SELECT qid,
+           Utils.CleanText(ts, 1000) AS ts
+    FROM qt_old;
+qrels = 
+    EXTRACT did:string,
+            qid:int
+    FROM @QRELS
+    USING DefaultTextExtractor();
+qrels =
+    SELECT qid,
+           did,
+           @posRating AS rating
+    FROM qrels
+         INNER JOIN
+             qt
+         ON qt.qid == qrels.qid;
+qt = SELECT qid, ts FROM qt SEMIJOIN qrels ON qt.qid==qrels.qid;
+qt = SELECT qid,
+           t.ToLower().Replace("\'","") AS tid
+    FROM qt
+         CROSS APPLY ts.Split(new char[]{ ' ', '(', ':', ')', '.', ',', '_', '-', ';', '!','&','\"' }, StringSplitOptions.RemoveEmptyEntries) AS t;
+sw = EXTRACT tid:string FROM @SW USING DefaultTextExtractor();
+//Eliminate stop words
+qt =
+    SELECT qid,
+           tid
+    FROM qt
+         ANTISEMIJOIN
+             sw
+         ON qt.tid==sw.tid;
+uqt =
+    SELECT DISTINCT tid
+    FROM qt;
+uqt =
+    SELECT tid
+    FROM uqt
+    EXCEPT
+    SELECT tid
+    FROM sw;
+dt =
+    EXTRACT did:string,
+            ts:string
+    FROM @DT USING DefaultTextExtractor( delimiter: '\t', silent: true);
+dt =
+    SELECT did,
+           Utils.CleanText(ts, 10000) AS ts
+    FROM dt;
+dt =
+    SELECT did,
+          t.ToLower() AS tid
+    FROM dt CROSS APPLY ts.Split(new char[]{ ' ', '(', ':', ')', '.', ',', '_', '-', ';', '!'}, StringSplitOptions.RemoveEmptyEntries) AS t;
+dt =
+    SELECT did,
+           tid
+    FROM dt
+         ANTISEMIJOIN
+             sw
+         ON dt.tid==sw.tid;
+len_corpus =
+    SELECT COUNT(DISTINCT did) AS D
+    FROM dt;
+len_d =
+    SELECT did,
+           COUNT() AS lend
+    FROM dt;
+avg_len_d =
+    SELECT AVG(lend) AS avglend
+    FROM len_d;
+len_d =
+    SELECT did,
+           ((double)lend / avglend) AS lend
+    FROM len_d
+         CROSS JOIN
+             avg_len_d;
+df =
+    SELECT tid,
+           COUNT(DISTINCT did) AS df
+    FROM dt
+         SEMIJOIN
+             uqt
+         ON dt.tid == uqt.tid;
+idf =
+    SELECT tid,
+           Math.Log10((D - df + 0.5) / (df + 0.5)) AS idf
+    FROM df
+         CROSS JOIN
+             len_corpus
+    HAVING idf > 0;
+tf =
+    SELECT tid,
+           did,
+           COUNT() AS tf
+    FROM dt
+         SEMIJOIN
+             uqt
+         ON dt.tid == uqt.tid
+    HAVING tf > 0;
+td =
+    SELECT tid,
+           did,
+           (double)tf AS tf,
+           lend
+    FROM tf
+         INNER JOIN
+             len_d
+         ON tf.did == len_d.did;
+td =
+    SELECT tid,
+           did,
+           tf,
+           lend,
+           idf
+    FROM td
+         INNER JOIN
+             idf
+         ON td.tid == idf.tid;
+td =  SELECT tid,
+           did,
+           tf,
+           lend,
+           idf,
+           (1.2 + 1 * 0.2) AS k,
+           (0.5 + 1 * 0.25) AS b
+    FROM td;
+td =
+    SELECT tid,
+           did,
+           Math.Max((double) (idf * ((tf * (k + 1)) / (tf + k * (1 - b + b * lend)))), 0) AS score
+    FROM td
+    HAVING score > 0;
+OUTPUT td TO SSTREAM @TDScores_SS HASH CLUSTERED BY tid SORTED BY tid;
+td = SSTREAM @TDScores_SS;
+td = SELECT tid, did, score FROM td;
+[SKEWJOIN=(SKEW=FROMBOTH,REPARTITION=FULLJOIN,LEVEL=200000,PARTITIONCOUNT=5000)]
+[ROWCOUNT=300000000000000]
+qd =
+    SELECT qid,
+           did,
+           score
+    FROM qt
+    INNER JOIN td ON qt.tid  == td.tid;
+[LOWDISTINCTNESS(qid,did)]
+[ROWCOUNT=300000000000000]
+qd =
+    SELECT qid,
+           did,
+           SUM(score) AS score
+    FROM qd;
+[LOWDISTINCTNESS(qid,did)]
+[ROWCOUNT=300000000000000]
+OUTPUT qd TO @dev_bm25_qid_did_scores ORDER BY qid;
+/*
+qd =
+    SELECT qid,
+           did,
+           score,
+           ROW_NUMBER() OVER(PARTITION BY qid ORDER BY score DESC, did) AS rank
+    FROM qd
+    HAVING rank <= 1000;
+qd_qid =  SELECT qid,
+                 @q0 AS Name,
+                 did,
+                 rank,
+                 score,
+                 @bm25 AS Name2
+    FROM qd;
+OUTPUT qd_qid
+TO @trec_eval_eval ORDER BY qid, rank;
+
+qd = SSTREAM @QDRanks_SS;
+qd = SELECT qid, did, rank FROM qd;
+QDRankingRatings =
+    SELECT qid,
+           did,
+           rank
+    FROM qd
+    HAVING rank<=1000;
+QDBestRanking = SELECT qid,
+           did,
+           rank,
+           (int)IF(rating == null, 0, rating) AS rating
+    FROM QDRankingRatings
+    LEFT OUTER JOIN qrels
+    ON QDRankingRatings.qid == qrels.qid AND QDRankingRatings.did == qrels.did;
+op1 = SELECT qid, did, rank, rating FROM QDBestRanking ORDER BY qid, rank;
+OUTPUT op1 TO @QDPairsBM25;
+temp = SELECT qid, did, rating FROM QDBestRanking;
+
+co
+op2 = SELECT qid,
+       string.Join(",", ARRAY_AGG(IF(rating == 1, did, "")).Where(s => !String.IsNullOrEmpty(s))) AS RelevantDocs,
+              string.Join(",", ARRAY_AGG(IF(rating == 0, did, "")).Where(s => !String.IsNullOrEmpty(s)))AS NonRelevantDocs FROM temp; 
+OUTPUT op2
+TO @QDListsForTraining;
+
+all_pos = SELECT COUNT() AS pos FROM qrels;
+qd_lists =
+    EXTRACT qid : string,
+            pos_did : string,
+            neg_did : string
+    FROM @QDListsForTraining
+    USING DefaultTextExtractor();
+qd_lists_pos =
+    SELECT qid,
+           pos_did
+    FROM qd_lists
+    WHERE pos_did != NULL;
+qd_lists_pos_split =
+    SELECT qid,
+           t AS did
+    FROM qd_lists_pos
+         CROSS APPLY pos_did.Split(new char[]{ ',' }, StringSplitOptions.RemoveEmptyEntries) AS t;
+true_positive =
+    SELECT COUNT() AS tp
+    FROM qd_lists_pos_split;
+recall_1000 =
+    SELECT ((double)true_positive.tp / all_pos.pos) AS recall
+    FROM true_positive
+         CROSS JOIN
+             all_pos;
+OUTPUT recall_1000 TO @Recall;
+
+//Relvant Passage Histogram
+qrels_cnt = SELECT qid, COUNT(DISTINCT did) AS numD FROM qrels GROUP BY qid;
+qrels_hist = SELECT numD, COUNT() AS freq FROM qrels_cnt GROUP BY numD;
+OUTPUT qrels_hist TO @Qrels_hist;
+
+//NDCG
+ideal =
+    SELECT qid,
+           did,
+           ROW_NUMBER() OVER(PARTITION BY qid ORDER BY rating DESC) AS rank,
+           rating
+    FROM qrels;
+ideal =
+    SELECT qid,
+#IF(@Discount == 1)
+           SUM((Math.Pow(2, rating) - 1) / Math.Log(rank + 1, 2)) AS dcg
+#ELSE
+           SUM(Math.Pow(2, rating) - 1) AS dcg
+#ENDIF
+    FROM ideal
+#IF(@Discount == 1)
+    WHERE rank <= 10
+#ELSE
+    WHERE rank <= 1000
+#ENDIF
+;
+qd = SSTREAM @QDRanks_SS;
+qd = SELECT qid, did, rank FROM qd;
+QDRankingRatings =
+    SELECT qid,
+           did,
+           rank,
+           (int)IF(rating == null, 0, rating) AS rating
+    FROM qd
+    LEFT OUTER JOIN qrels
+    ON qd.qid == qrels.qid AND qd.did == qrels.did;
+tmnt =
+    SELECT qid,
+#IF(@Discount == 1)
+           SUM((Math.Pow(2, rating) - 1) / Math.Log(rank + 1, 2)) AS dcg
+#ELSE
+           SUM(Math.Pow(2, rating) - 1) AS dcg
+#ENDIF
+    FROM QDRankingRatings
+#IF(@Discount == 1)
+    WHERE rank <= 10
+#ELSE
+    WHERE rank <= 1000
+#ENDIF
+;
+
+QMNDCG = SELECT qid,
+       100 * (double)IF(tmnt.dcg == null, 0, tmnt.dcg) / ideal.dcg AS ndcg
+FROM ideal
+LEFT OUTER JOIN tmnt
+ON ideal.qid == tmnt.qid
+ORDER BY qid;
+
+OUTPUT QMNDCG
+TO @QueryNDCG;
+
+ModelNDCG = SELECT AVG(ndcg) AS ndcg
+FROM QMNDCG;
+OUTPUT ModelNDCG TO @ModelNDCG;
+
+//MRR
+best_rank = SELECT qd.qid, MIN(rank) AS best_rank FROM qd JOIN qrels ON qd.qid==qrels.qid AND qd.did==qrels.did GROUP BY qid;
+rec_rank = SELECT qid, ((double)1/best_rank) AS rec_rank FROM best_rank;
+MRR = SELECT AVG(rec_rank) AS MRR FROM rec_rank;
+OUTPUT MRR TO @MRR;
+
+qd_lists = EXTRACT qid: int, pos_list:string, neg_list:string FROM @QDListsForTraining USING DefaultTextExtractor();
+qd_train = SELECT qid, pos_list, neg_list FROM qd_lists WHERE pos_list != NULL;
+
+//Training Data
+train_triplets = SELECT qid, 
+                     t AS pos_did, neg_list 
+    FROM qd_train 
+         CROSS APPLY pos_list.Split(new char[]{ ',' }, StringSplitOptions.RemoveEmptyEntries) AS t;
+train_triplets = SELECT qid, pos_did, t AS neg_did FROM train_triplets CROSS APPLY neg_list.Split(new char[]{ ',' }, StringSplitOptions.RemoveEmptyEntries) AS t;
+[ROWCOUNT=300000000000000]
+train_triplets_rnd =
+    SELECT qid,
+           pos_did,
+           neg_did,
+           Utils.RandomInt() AS idx
+    FROM train_triplets;
+OUTPUT train_triplets_rnd TO @train_triplets_ids ORDER BY idx;
+train_triplets_text =
+    SELECT qt.ts AS qText,
+           pos_did,
+           neg_did, idx
+    FROM train_triplets_rnd
+         JOIN
+             qt
+         ON train_triplets_rnd.qid == qt.qid;
+[ROWCOUNT=300000000000000]
+train_triplets_text = SELECT qText, dt.ts AS dTextPos, neg_did, idx FROM train_triplets_text JOIN dt ON train_triplets_text.pos_did==dt.did;
+train_triplets_text = SELECT qText, dTextPos, dt.ts AS dTextNeg, idx FROM train_triplets_text JOIN dt ON train_triplets_text.neg_did==dt.did;
+train_triplets_text = SELECT qText, dTextPos, dTextNeg, idx FROM train_triplets_text ORDER BY idx;
+OUTPUT train_triplets_text TO @train_triplets_text USING MyCsvOutputter();
+
+#CS
+using Microsoft.SCOPE.Types;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using ScopeRuntime;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Text.RegularExpressions;
+
+public static class HelpersQ
+{
+    public static string PreprocessQ(string text)
+    {
+        Regex rgx = new Regex("[^a-zA-Z0-9 ]");
+        text = rgx.Replace(text, " ");
+        text = Regex.Replace(text, @"\s+", " ");
+        return text;
+    }
+}
+
+public static class Utils
+{
+    private static Random random = new Random();
+    public static double GetRandom()
+    {
+        return random.NextDouble();
+    }
+    public static string CleanText(string text, int maxWords)
+    {
+        if (text == null)
+        {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        text = text.ToLower();
+        char pc = 'a';
+
+        foreach (char c in text)
+        {
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+            {
+                sb.Append(c);
+                pc = c;
+            }
+            else if (pc != ' ')
+            {
+                sb.Append(' ');
+                pc = ' ';
+            }
+        }
+
+        return String.Join(" ", sb.ToString().Trim().Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Take(maxWords));
+    }
+}
+
+#ENDCS
+

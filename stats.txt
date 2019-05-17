@@ -1,0 +1,6 @@
+There are 7555149 unique words
+There are 8841823 unique passages
+The average question length is 6.373235758460644 words with a range 1 to 75 words
+The average passage length is 56.25311069900404 words with a range 1 to 362 words
+Top 1000 dev contains 3895239 unique passages
+Top 1000 eval contains 3831719 unique passages
