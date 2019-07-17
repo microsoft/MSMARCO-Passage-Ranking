@@ -126,7 +126,7 @@ Size info
   13184703 total
 ````
 #### Relevant Passages
-We have processed the train and dev set and made a QID to PID mapping of when a question has had a passage marked as relevant. We have held out the eval set but its distribution matches that of dev. As mentioned above, since since top1000.dev and top1000.eval are samples there exists qrels.dev.tsv(full qrels on 55,000 queries) and qrels.dev.small.tsv(which are the qrels corresponding to all queries in top1000.dev). Column 0 is queryID, column 2 is passageID. Please ignore columns 1 and 3. There are 5 files and they can be found inside [Here](https://msmarco.blob.core.windows.net/msmarcoranking/collectionandqueries.tar.gz)
+We have processed the train and dev set and made a QID to PID mapping of when a question has had a passage marked as relevant. We have held out the eval set but its distribution matches that of dev. As mentioned above, since since top1000.dev and top1000.eval are samples there exists qrels.dev.tsv(full qrels on 55,000 queries) and qrels.dev.small.tsv(which are the qrels corresponding to all queries in top1000.dev). Column 0 is queryID, column 2 is passageID. Please ignore columns 1 and 3(They are there for TREC formating). There are 5 files and they can be found inside [Here](https://msmarco.blob.core.windows.net/msmarcoranking/collectionandqueries.tar.gz)
 ````
 1185869 0       0       1
 1185868 0       16      1
