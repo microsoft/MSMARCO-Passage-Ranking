@@ -1,0 +1,11 @@
+Metrics for Eval
+#####################
+MRR @10: 0.38289756251581614
+QueriesRanked: 6836
+#####################
+Metrics for Dev
+Cannot rank a passage multiple times for a single query. QID=1090291, PID=5500000
+#####################
+MRR @10: 0.39452807340701307
+QueriesRanked: 6980
+#####################

@@ -1,0 +1,6 @@
+Metrics for Eval
+#####################
+MRR @10: 0.33578149703643323
+QueriesRanked: 6837
+#####################
+Metrics for Dev
