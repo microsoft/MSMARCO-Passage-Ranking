@@ -1,4 +1,4 @@
-To participate in the MS MARCO Passage Ranking leaderboard, please go here: <https://microsoft.github.io/msmarco/Submission>.
+To participate in the MS MARCO Passage Ranking leaderboard, please go here: [https://microsoft.github.io/msmarco/Submission](https://microsoft.github.io/msmarco/Submission).
 
 <!---
 # MSMARCO
